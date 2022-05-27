@@ -3,6 +3,9 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "third_party/ghidra/Ghidra/Features/Decompiler/src/decompile/cpp/sleigh.hh"
+#include "third_party/ghidra/Ghidra/Features/Decompiler/src/decompile/cpp/loadimage.hh"
+
 #include "binaryninjaapi.h"
 #include "lowlevelilinstruction.h"
 
