@@ -1,0 +1,38 @@
+cmake_minimum_required(VERSION 3.9 FATAL_ERROR)
+
+project(binaryninja-pcode CXX C)
+
+if((NOT BN_API_PATH) AND (NOT BN_INTERNAL_BUILD))
+	set(BN_API_PATH $ENV{BN_API_PATH})
+	if(NOT BN_API_PATH)
+		message(FATAL_ERROR "Provide path to Binary Ninja API source in BN_API_PATH")
+	endif()
+endif()
+
+if((NOT BN_INSTALL_DIR) AND (NOT BN_INTERNAL_BUILD) AND WIN32)
+	set(BN_INSTALL_DIR $ENV{BN_INSTALL_DIR})
+	if(NOT BN_INSTALL_DIR)
+		message(FATAL_ERROR "Provide path to Binary Ninja installation in BN_INSTALL_DIR")
+	endif()
+endif()
+
+if(NOT BN_INTERNAL_BUILD)
+	add_subdirectory(${BN_API_PATH} ${PROJECT_BINARY_DIR}/api)
+endif()
+
+add_library(${PROJECT_NAME} SHARED
+    src/pcode_architecture.cpp)
+
+
+target_link_libraries(${PROJECT_NAME}
+    binaryninjaapi)
+
+set_target_properties(${PROJECT_NAME} PROPERTIES
+    CXX_STANDARD 17
+    CXX_VISIBILITY_PRESET hidden
+    CXX_STANDARD_REQUIRED ON
+    VISIBILITY_INLINES_HIDDEN ON
+    POSITION_INDEPENDENT_CODE ON
+    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/out/bin)
+
+bn_install_plugin(${PROJECT_NAME})
