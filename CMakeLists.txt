@@ -48,24 +48,25 @@ add_executable(sleigh
 	${SLEIGH_COMMON}
 )
 
-# This simply compiles all slaspec after building the sleigh compiler,
-# but doesn't check for changes in the actual slaspec files
 file(GLOB_RECURSE slaspec_FILES third_party/ghidra/Ghidra/Processors/*.slaspec)
 foreach(slaspec ${slaspec_FILES})
     get_filename_component(sla ${slaspec} NAME_WLE)
     file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/out/sla)
 
     add_custom_command(
-        TARGET sleigh
-        POST_BUILD
-        COMMAND ${CMAKE_BINARY_DIR}/sleigh ${slaspec} ${CMAKE_BINARY_DIR}/out/sla/${sla}
+        OUTPUT ${CMAKE_BINARY_DIR}/out/sla/${sla}.sla
+        COMMAND ${CMAKE_BINARY_DIR}/sleigh ${slaspec} ${CMAKE_BINARY_DIR}/out/sla/${sla}.sla
+        DEPENDS ${CMAKE_BINARY_DIR}/sleigh
+        DEPENDS ${slaspec}
     )
+    list(APPEND SLA_FILES ${CMAKE_BINARY_DIR}/out/sla/${sla}.sla)
 endforeach()
 
 include_directories(.)
 
 add_library(${PROJECT_NAME} SHARED
     ${SLEIGH_COMMON}
+    ${SLA_FILES}
     src/pcode_architecture.cpp
 )
 
