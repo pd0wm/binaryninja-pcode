@@ -163,15 +163,11 @@ public:
         Address pcode_addr(m_sleigh->getDefaultCodeSpace(), addr);
 
         try {
-            result.length = m_sleigh->instructionLength(pcode_addr);
 
             PcodeEmitCacher pcode;
-            m_sleigh->oneInstruction(pcode, pcode_addr);
+            result.length = m_sleigh->oneInstruction(pcode, pcode_addr);
 
             for (auto const &op : pcode.m_ops) {
-                if (addr == 0x780) {
-
-                }
                 // TODO: Deal with different spaces
                 switch(op.opcode) {
                 case CPUI_BRANCH:
@@ -180,8 +176,6 @@ public:
                 case CPUI_CBRANCH:
                     // TODO: Determine what is true/false
                     result.AddBranch(TrueBranch, op.inputs[0].getAddr().getOffset());
-
-                    // TODO: Deal with (mips) delay slots for fallthrough
                     result.AddBranch(FalseBranch, addr + result.length);
                     break;
                 case CPUI_BRANCHIND:
