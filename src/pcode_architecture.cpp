@@ -67,6 +67,52 @@ public:
     virtual void adjustVma(long adjust) { }
 };
 
+typedef struct {
+	OpCode opcode;
+	std::optional<VarnodeData> output;
+	std::vector<VarnodeData> inputs;
+} PcodeOp;
+
+class PcodeEmitCacher : public PcodeEmit
+{
+public:
+    // vector<unique_ptr<Varnode>> m_vars;
+    vector<PcodeOp>             m_ops;
+
+    PcodeEmitCacher() {
+    }
+
+    void dump(const Address &addr, OpCode opc, VarnodeData *outvar, VarnodeData *vars, int4 isize) {
+        assert(isize > 0);
+
+        PcodeOp op;
+        op.opcode = opc;
+
+        if (outvar != nullptr) {
+            op.output = *outvar;
+        }
+
+        for (int i = 0; i < isize; i++) {
+            op.inputs.push_back(vars[i]);
+        }
+        m_ops.push_back(op);
+    }
+};
+
+class AssemblyEmitCacher : public AssemblyEmit
+{
+public:
+    Address  m_addr;
+    string   m_mnem;
+    string   m_body;
+
+    void dump(const Address &addr, const string &mnem, const string &body)
+    {
+        m_addr = addr;
+        m_mnem = mnem;
+        m_body = body;
+    };
+};
 
 class PcodeArchitecture : public Architecture {
 	size_t m_bits;
@@ -112,11 +158,74 @@ public:
     }
 
     bool GetInstructionInfo(const uint8_t* data, uint64_t addr, size_t maxLen, InstructionInfo& result) override {
-        return false;
+
+        m_loader.setData(addr, data, maxLen);
+        Address pcode_addr(m_sleigh->getDefaultCodeSpace(), addr);
+
+        try {
+            result.length = m_sleigh->instructionLength(pcode_addr);
+
+            PcodeEmitCacher pcode;
+            m_sleigh->oneInstruction(pcode, pcode_addr);
+
+            for (auto const &op : pcode.m_ops) {
+                if (addr == 0x780) {
+
+                }
+                // TODO: Deal with different spaces
+                switch(op.opcode) {
+                case CPUI_BRANCH:
+                    result.AddBranch(UnconditionalBranch, op.inputs[0].getAddr().getOffset());
+                    break;
+                case CPUI_CBRANCH:
+                    // TODO: Determine what is true/false
+                    result.AddBranch(TrueBranch, op.inputs[0].getAddr().getOffset());
+
+                    // TODO: Deal with (mips) delay slots for fallthrough
+                    result.AddBranch(FalseBranch, addr + result.length);
+                    break;
+                case CPUI_BRANCHIND:
+                    // TODO
+                    break;
+                case CPUI_CALL:
+                    result.AddBranch(CallDestination, op.inputs[0].getAddr().getOffset());
+                    break;
+                case CPUI_CALLIND:
+                    // TODO
+                    break;
+                case CPUI_CALLOTHER:
+                    // TODO
+                    break;
+                case CPUI_RETURN:
+                    result.AddBranch(FunctionReturn);
+                    break;
+                }
+            }
+            return true;
+        } catch (...) {
+            return false;
+        }
     }
 
     bool GetInstructionText(const uint8_t* data, uint64_t addr, size_t& len, std::vector<InstructionTextToken>& result) override {
-        return false;
+        m_loader.setData(addr, data, len);
+        Address pcode_addr(m_sleigh->getDefaultCodeSpace(), addr);
+
+        try {
+            // Update length of actually processed instruction
+            len = m_sleigh->instructionLength(pcode_addr);
+
+            AssemblyEmitCacher assembly;
+            m_sleigh->printAssembly(assembly, pcode_addr);
+
+            // LogInfo("Get text. Addr %ld, text %s", addr, (assembly.m_mnem + assembly.m_body).c_str());
+
+            InstructionTextToken token(TextToken, assembly.m_mnem + " " + assembly.m_body);
+            result.push_back(token);
+            return true;
+        } catch (...) {
+            return false;
+        }
     }
 
 
