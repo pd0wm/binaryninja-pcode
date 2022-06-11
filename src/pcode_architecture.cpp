@@ -115,10 +115,6 @@ public:
 };
 
 class PcodeArchitecture : public Architecture {
-	size_t m_bits;
-	BNEndianness m_endian;
-
-    // ghidra storage
     SimpleLoadImage     m_loader;
     ContextInternal     m_context_internal;
     DocumentStorage     m_document_storage;
@@ -127,7 +123,7 @@ class PcodeArchitecture : public Architecture {
     std::unique_ptr<Sleigh>  m_sleigh;
 
 public:
-	PcodeArchitecture(const std::string& name, BNEndianness endian, size_t bits): Architecture("pcode_" + name), m_bits(bits), m_endian(endian) {
+	PcodeArchitecture(const std::string& name): Architecture("pcode_" + name) {
         // TODO: embed sla files inside plugin .so
         const std::string path = "/home/willem/Development/binaryninja-pcode/build/out/sla/" + name + ".sla";
 
@@ -150,11 +146,11 @@ public:
 	}
 
     BNEndianness GetEndianness() const override {
-        return m_endian;
+        return m_sleigh->getDefaultCodeSpace()->isBigEndian() ? BigEndian : LittleEndian;
     }
 
     size_t GetAddressSize() const override {
-        return m_bits / 8;
+        return m_sleigh->getDefaultCodeSpace()->getAddrSize();
     }
 
     bool GetInstructionInfo(const uint8_t* data, uint64_t addr, size_t maxLen, InstructionInfo& result) override {
@@ -228,7 +224,7 @@ extern "C"
 
     BINARYNINJAPLUGIN bool CorePluginInit() {
         try {
-            Architecture* arch = new PcodeArchitecture("V850", LittleEndian, 32);
+            Architecture* arch = new PcodeArchitecture("V850");
             Architecture::Register(arch);
 
             // BinaryViewType::RegisterArchitecture("ELF", 0x08, BigEndian, v850);
