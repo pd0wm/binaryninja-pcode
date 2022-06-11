@@ -4,6 +4,7 @@
 #include <string.h>
 #include <cassert>
 #include <mutex>
+#include <map>
 
 #include "third_party/ghidra/Ghidra/Features/Decompiler/src/decompile/cpp/sleigh.hh"
 #include "third_party/ghidra/Ghidra/Features/Decompiler/src/decompile/cpp/loadimage.hh"
@@ -124,6 +125,15 @@ class PcodeArchitecture : public Architecture {
     std::unique_ptr<Sleigh>  m_sleigh;
     std::mutex m_sleigh_mutex;
 
+    // std::vector<VarnodeData> m_registers;  // List of all registers
+    // std::map<std::tuple<int, uint64_t>, int>
+    // std::vector<VarnodeData> m_registers;
+    // std::vector<
+
+    std::map<int, VarnodeData> m_register_varnodes;
+    std::map<int, std::string> m_register_names;
+    std::map<VarnodeData, int> m_register_nums;
+
     size_t m_addr_size;
     BNEndianness m_endianness;
 
@@ -149,6 +159,17 @@ public:
         m_addr_size = m_sleigh->getDefaultCodeSpace()->getAddrSize();
         m_endianness = m_sleigh->getDefaultCodeSpace()->isBigEndian() ? BigEndian : LittleEndian;
 
+        // Registers
+        std::map<VarnodeData, std::string> registers;
+        m_sleigh->getAllRegisters(registers);
+        int i = 0;
+        for (auto const& [varnode, name] : registers) {
+            LogInfo("%d - size %d offset %ld name %s", i, varnode.size, varnode.offset, name.c_str());
+            m_register_nums[varnode] = i;
+            m_register_varnodes[i] = varnode;
+            m_register_names[i] = name;
+            i++;
+        }
 
         LogInfo("Done loading: %s", path.c_str());
 	}
@@ -160,6 +181,35 @@ public:
     size_t GetAddressSize() const override {
         return m_addr_size;
     }
+
+	virtual vector<uint32_t> GetFullWidthRegisters() override {
+        std::vector<uint32_t> res;
+        for (auto const& [num, varnode] : m_register_varnodes) {
+            res.push_back(num);
+        }
+        return res;
+    }
+
+	virtual vector<uint32_t> GetAllRegisters() override {
+        std::vector<uint32_t> res;
+        for (auto const& [num, varnode] : m_register_varnodes) {
+            res.push_back(num);
+        }
+        return res;
+    }
+
+    virtual BNRegisterInfo GetRegisterInfo(uint32_t reg) override {
+        VarnodeData reg_node = m_register_varnodes[reg];
+
+        // TODO, handle overlapping registers
+		BNRegisterInfo result = {reg, 0, reg_node.size, NoExtend};
+		return result;
+	}
+
+    virtual string GetRegisterName(uint32_t reg) override {
+        return m_register_names[reg];
+    }
+
 
     bool GetInstructionInfo(const uint8_t* data, uint64_t addr, size_t maxLen, InstructionInfo& result) override {
         std::lock_guard<std::mutex> guard(m_sleigh_mutex);
@@ -250,7 +300,7 @@ public:
             return il.Undefined();
         } else if (typ == IPTR_PROCESSOR) { // Registers
             LogInfo("write reg %d %lx", dst.size, dst.offset);
-            return il.SetRegister(dst.size, dst.offset / dst.size, *src);
+            return il.SetRegister(dst.size, m_register_nums[dst], *src);
         } else if (typ == IPTR_INTERNAL) {
             LogInfo("write internal %d %lx", dst.size, dst.offset);
         } else {
