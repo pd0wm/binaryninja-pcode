@@ -168,13 +168,12 @@ public:
             result.length = m_sleigh->oneInstruction(pcode, pcode_addr);
 
             for (auto const &op : pcode.m_ops) {
-                // TODO: Deal with different spaces
+                // TODO: Do we need to deal with different addr spaces?
                 switch(op.opcode) {
                 case CPUI_BRANCH:
                     result.AddBranch(UnconditionalBranch, op.inputs[0].getAddr().getOffset());
                     break;
                 case CPUI_CBRANCH:
-                    // TODO: Determine what is true/false
                     result.AddBranch(TrueBranch, op.inputs[0].getAddr().getOffset());
                     result.AddBranch(FalseBranch, addr + result.length);
                     break;
@@ -207,15 +206,11 @@ public:
 
         try {
             // Update length of actually processed instruction
-            len = m_sleigh->instructionLength(pcode_addr);
-
             AssemblyEmitCacher assembly;
-            m_sleigh->printAssembly(assembly, pcode_addr);
+            len = m_sleigh->printAssembly(assembly, pcode_addr);
 
-            // LogInfo("Get text. Addr %ld, text %s", addr, (assembly.m_mnem + assembly.m_body).c_str());
-
-            InstructionTextToken token(TextToken, assembly.m_mnem + " " + assembly.m_body);
-            result.push_back(token);
+            result.push_back(InstructionTextToken(InstructionToken, assembly.m_mnem));
+            result.push_back(InstructionTextToken(TextToken, " " + assembly.m_body));
             return true;
         } catch (...) {
             return false;
