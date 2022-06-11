@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <cassert>
+#include <mutex>
 
 #include "third_party/ghidra/Ghidra/Features/Decompiler/src/decompile/cpp/sleigh.hh"
 #include "third_party/ghidra/Ghidra/Features/Decompiler/src/decompile/cpp/loadimage.hh"
@@ -83,8 +84,6 @@ public:
     }
 
     void dump(const Address &addr, OpCode opc, VarnodeData *outvar, VarnodeData *vars, int4 isize) {
-        assert(isize > 0);
-
         PcodeOp op;
         op.opcode = opc;
 
@@ -92,8 +91,10 @@ public:
             op.output = *outvar;
         }
 
-        for (int i = 0; i < isize; i++) {
-            op.inputs.push_back(vars[i]);
+        if (vars != nullptr && isize > 0) {
+            for (int i = 0; i < isize; i++) {
+                op.inputs.push_back(vars[i]);
+            }
         }
         m_ops.push_back(op);
     }
@@ -121,6 +122,10 @@ class PcodeArchitecture : public Architecture {
     Document           *m_document;
     Element            *m_tags;
     std::unique_ptr<Sleigh>  m_sleigh;
+    std::mutex m_sleigh_mutex;
+
+    size_t m_addr_size;
+    BNEndianness m_endianness;
 
 public:
 	PcodeArchitecture(const std::string& name): Architecture("pcode_" + name) {
@@ -141,19 +146,23 @@ public:
         m_sleigh.reset(new Sleigh(&m_loader, &m_context_internal));
         m_sleigh->initialize(m_document_storage);
 
+        m_addr_size = m_sleigh->getDefaultCodeSpace()->getAddrSize();
+        m_endianness = m_sleigh->getDefaultCodeSpace()->isBigEndian() ? BigEndian : LittleEndian;
+
 
         LogInfo("Done loading: %s", path.c_str());
 	}
 
     BNEndianness GetEndianness() const override {
-        return m_sleigh->getDefaultCodeSpace()->isBigEndian() ? BigEndian : LittleEndian;
+        return m_endianness;
     }
 
     size_t GetAddressSize() const override {
-        return m_sleigh->getDefaultCodeSpace()->getAddrSize();
+        return m_addr_size;
     }
 
     bool GetInstructionInfo(const uint8_t* data, uint64_t addr, size_t maxLen, InstructionInfo& result) override {
+        std::lock_guard<std::mutex> guard(m_sleigh_mutex);
 
         m_loader.setData(addr, data, maxLen);
         Address pcode_addr(m_sleigh->getDefaultCodeSpace(), addr);
@@ -197,6 +206,8 @@ public:
     }
 
     bool GetInstructionText(const uint8_t* data, uint64_t addr, size_t& len, std::vector<InstructionTextToken>& result) override {
+        std::lock_guard<std::mutex> guard(m_sleigh_mutex);
+
         m_loader.setData(addr, data, len);
         Address pcode_addr(m_sleigh->getDefaultCodeSpace(), addr);
 
@@ -212,6 +223,79 @@ public:
             return false;
         }
     }
+
+    std::optional<ExprId> ReadIL(LowLevelILFunction& il, VarnodeData data) {
+        spacetype typ = data.space->getType();
+
+        if (typ == IPTR_CONSTANT) {
+            return il.Const(data.size, data.offset);
+        } else if (typ == IPTR_PROCESSOR) { // Registers
+            LogInfo("read reg %d %lx", data.size, data.offset);
+        } else if (typ == IPTR_INTERNAL) {
+            LogInfo("read internal %d %lx", data.size, data.offset);
+        } else {
+            LogInfo("read unknown space %d", typ);
+        }
+        return {};
+    }
+
+    ExprId WriteIL(LowLevelILFunction& il, VarnodeData dst, std::optional<ExprId> src) {
+        if (!src) {
+            return il.Undefined();
+        }
+
+        spacetype typ = dst.space->getType();
+
+        if (typ == IPTR_CONSTANT) {
+            return il.Undefined();
+        } else if (typ == IPTR_PROCESSOR) { // Registers
+            LogInfo("write reg %d %lx", dst.size, dst.offset);
+            return il.SetRegister(dst.size, dst.offset / dst.size, *src);
+        } else if (typ == IPTR_INTERNAL) {
+            LogInfo("write internal %d %lx", dst.size, dst.offset);
+        } else {
+            LogInfo("write unknown space %d", typ);
+        }
+        return il.Undefined();
+    }
+
+    bool GetInstructionLowLevelIL(const uint8_t* data, uint64_t addr, size_t& len, LowLevelILFunction& il) override {
+        std::lock_guard<std::mutex> guard(m_sleigh_mutex);
+
+        m_loader.setData(addr, data, len);
+        Address pcode_addr(m_sleigh->getDefaultCodeSpace(), addr);
+
+        try {
+
+            PcodeEmitCacher pcode;
+            AssemblyEmitCacher assembly;
+            len = m_sleigh->oneInstruction(pcode, pcode_addr);
+
+            for (auto const &op : pcode.m_ops) {
+                if (op.opcode == CPUI_COPY) {
+                    LogInfo("addr %lx", addr);
+
+                    il.AddInstruction(WriteIL(il, *op.output, ReadIL(il, op.inputs[0])));
+                } else if (op.opcode == CPUI_BRANCH) {
+                    uint64_t target = op.inputs[0].getAddr().getOffset();
+                    BNLowLevelILLabel* label = il.GetLabelForAddress(this, target);
+                    if (label) {
+                        il.AddInstruction(il.Goto(*label));
+                    } else {
+                        il.AddInstruction(il.Jump(il.ConstPointer(m_addr_size, target)));
+                    }
+                } else {
+                    il.AddInstruction(il.Undefined());
+                }
+            }
+
+            return true;
+        } catch (...) {
+            il.AddInstruction(il.Undefined());
+            return false;
+        }
+    }
+
 
 
 };
