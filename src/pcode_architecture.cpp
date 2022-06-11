@@ -262,8 +262,9 @@ public:
         Address pcode_addr(m_sleigh->getDefaultCodeSpace(), addr);
 
         try {
-            // Update length of actually processed instruction
             AssemblyEmitCacher assembly;
+
+            // Update length of actually processed instruction
             len = m_sleigh->printAssembly(assembly, pcode_addr);
 
             result.push_back(InstructionTextToken(InstructionToken, assembly.m_mnem));
@@ -280,7 +281,7 @@ public:
         if (typ == IPTR_CONSTANT) {
             return il.Const(data.size, data.offset);
         } else if (typ == IPTR_PROCESSOR) { // Registers
-            LogInfo("read reg %d %lx", data.size, data.offset);
+            return il.Register(data.size, m_register_nums[data]);
         } else if (typ == IPTR_INTERNAL) {
             LogInfo("read internal %d %lx", data.size, data.offset);
         } else {
@@ -299,7 +300,6 @@ public:
         if (typ == IPTR_CONSTANT) {
             return il.Undefined();
         } else if (typ == IPTR_PROCESSOR) { // Registers
-            LogInfo("write reg %d %lx", dst.size, dst.offset);
             return il.SetRegister(dst.size, m_register_nums[dst], *src);
         } else if (typ == IPTR_INTERNAL) {
             LogInfo("write internal %d %lx", dst.size, dst.offset);
@@ -324,7 +324,6 @@ public:
             for (auto const &op : pcode.m_ops) {
                 if (op.opcode == CPUI_COPY) {
                     LogInfo("addr %lx", addr);
-
                     il.AddInstruction(WriteIL(il, *op.output, ReadIL(il, op.inputs[0])));
                 } else if (op.opcode == CPUI_BRANCH) {
                     uint64_t target = op.inputs[0].getAddr().getOffset();
@@ -334,8 +333,6 @@ public:
                     } else {
                         il.AddInstruction(il.Jump(il.ConstPointer(m_addr_size, target)));
                     }
-                } else {
-                    il.AddInstruction(il.Undefined());
                 }
             }
 
