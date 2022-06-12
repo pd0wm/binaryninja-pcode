@@ -282,10 +282,10 @@ public:
             return il.Const(data.size, data.offset);
         } else if (typ == IPTR_PROCESSOR) { // Registers
             return il.Register(data.size, m_register_nums[data]);
-        } else if (typ == IPTR_INTERNAL) {
-            LogInfo("read internal %d %lx", data.size, data.offset);
+        } else if (typ == IPTR_INTERNAL) { // Temporaries
+            return il.Flag(data.offset);
         } else {
-            LogInfo("read unknown space %d", typ);
+            LogWarn("read unknown space %d", typ);
         }
         return {};
     }
@@ -301,10 +301,10 @@ public:
             return il.Undefined();
         } else if (typ == IPTR_PROCESSOR) { // Registers
             return il.SetRegister(dst.size, m_register_nums[dst], *src);
-        } else if (typ == IPTR_INTERNAL) {
-            LogInfo("write internal %d %lx", dst.size, dst.offset);
+        } else if (typ == IPTR_INTERNAL) { // Temporaries
+            return il.SetFlag(dst.offset, *src);
         } else {
-            LogInfo("write unknown space %d", typ);
+            LogWarn("write unknown space %d", typ);
         }
         return il.Undefined();
     }
@@ -323,8 +323,9 @@ public:
 
             for (auto const &op : pcode.m_ops) {
                 if (op.opcode == CPUI_COPY) {
-                    LogInfo("addr %lx", addr);
                     il.AddInstruction(WriteIL(il, *op.output, ReadIL(il, op.inputs[0])));
+                } else if (op.opcode == CPUI_LOAD) {
+                    LogInfo("addr 0x%lx - CPUI_LOAD", addr);
                 } else if (op.opcode == CPUI_BRANCH) {
                     uint64_t target = op.inputs[0].getAddr().getOffset();
                     BNLowLevelILLabel* label = il.GetLabelForAddress(this, target);
