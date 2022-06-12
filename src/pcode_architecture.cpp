@@ -461,6 +461,9 @@ public:
                     ExprId a = ILReadVarNode(il, op.inputs[0]);
                     ExprId b = ILReadVarNode(il, op.inputs[1]);
                     il.AddInstruction(il.AddCarry(op.inputs[0].size, a, b, il.Flag(op.output->offset), 1));
+                } else if (op.opcode == CPUI_INT_NEGATE){ // 25
+                    ExprId a = ILReadVarNode(il, op.inputs[0]);
+                    il.AddInstruction(ILWriteVarnode(il, *op.output, il.Neg(op.output->size, a)));
                 } else if (op.opcode == CPUI_INT_XOR){ // 26
                     ExprId a = ILReadVarNode(il, op.inputs[0]);
                     ExprId b = ILReadVarNode(il, op.inputs[1]);
@@ -534,6 +537,40 @@ public:
 
 };
 
+class V850CallingConvention: public CallingConvention
+{
+    Architecture *m_arch;
+public:
+	V850CallingConvention(Architecture* arch): CallingConvention(arch, "default"), m_arch(arch) {
+	}
+
+    uint32_t find_by_name(std::string name) {
+        for (uint32_t i = 0; i < 1000; i++) {
+            if (m_arch->GetRegisterName(i) == name) {
+                return i;
+            }
+        }
+        return 0;
+    }
+
+	virtual uint32_t GetIntegerReturnValueRegister() override {
+		return find_by_name("r10");
+	}
+
+	virtual uint32_t GetHighIntegerReturnValueRegister() override {
+		return find_by_name("r11");
+	}
+
+	virtual vector<uint32_t> GetIntegerArgumentRegisters() override {
+		return vector<uint32_t> {
+            find_by_name("r6"),
+            find_by_name("r7"),
+            find_by_name("r8"),
+            find_by_name("r9"),
+		};
+	}
+};
+
 
 extern "C"
 {
@@ -545,7 +582,9 @@ extern "C"
             Architecture* arch = new PcodeArchitecture("V850");
             Architecture::Register(arch);
 
-            // BinaryViewType::RegisterArchitecture("ELF", 0x08, BigEndian, v850);
+            V850CallingConvention *v850 = new V850CallingConvention(arch);
+            arch->RegisterCallingConvention(v850);
+
             return true;
         } catch (...) {
             return false;
