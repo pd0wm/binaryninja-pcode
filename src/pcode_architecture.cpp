@@ -136,14 +136,10 @@ class PcodeArchitecture : public Architecture {
     std::unique_ptr<Sleigh>  m_sleigh;
     std::mutex m_sleigh_mutex;
 
-    // std::vector<VarnodeData> m_registers;  // List of all registers
-    // std::map<std::tuple<int, uint64_t>, int>
-    // std::vector<VarnodeData> m_registers;
-    // std::vector<
-
     std::map<int, VarnodeData> m_register_varnodes;
     std::map<int, std::string> m_register_names;
     std::map<VarnodeData, int> m_register_nums;
+    std::vector<std::string>   m_userops;
 
     size_t m_addr_size;
     BNEndianness m_endianness;
@@ -179,6 +175,14 @@ public:
             m_register_nums[varnode] = i;
             m_register_varnodes[i] = varnode;
             m_register_names[i] = name;
+            i++;
+        }
+
+        // Userops
+        m_sleigh->getUserOpNames(m_userops);
+        i = 0;
+        for (auto const &op : m_userops) {
+            LogInfo("%d - %s", i, op.c_str());
             i++;
         }
 
@@ -219,6 +223,10 @@ public:
 
     virtual string GetRegisterName(uint32_t reg) override {
         return m_register_names[reg];
+    }
+
+    virtual string GetIntrinsicName(uint32_t intrinsic) override {
+        return m_userops[intrinsic];
     }
 
 
@@ -338,16 +346,23 @@ public:
                 for (int i = 0; i < op.inputs.size(); i++) {
                     ss << format("input[%d] - space: %d - size: %d - offset: 0x%lx, ", i, op.inputs[i].space->getType(), op.inputs[i].size, op.inputs[i].offset);
                 }
-                LogInfo("%s", ss.str().c_str());
 
                 if (op.opcode == CPUI_COPY) { // 1
                     il.AddInstruction(ILWriteVarnode(il, *op.output, ILReadVarNode(il, op.inputs[0])));
                 } else if (op.opcode == CPUI_LOAD) { // 2
-                    // Input 0 contains some information about the space, input 1 is a temporary with an offset in the space
-                    // Assume offset is into RAM for now
+                    // Output contains destination
+                    // Input 0 contains some information about the space, assume this is RAM for now
+                    // Input 1 is a temporary with an offset in the space
                     ExprId offset = ILReadVarNode(il, op.inputs[1]);
                     ExprId val = il.Load(op.output->size, offset);
                     il.AddInstruction(ILWriteVarnode(il, *op.output, val));
+                } else if (op.opcode == CPUI_STORE) { // 3
+                    // Input 0 contains some information about the space, assume this is RAM for now
+                    // Input 1 is a temporary with an offset in the space
+                    // Input 2 is the value to store
+                    ExprId val = ILReadVarNode(il, op.inputs[2]);
+                    ExprId offset = ILReadVarNode(il, op.inputs[1]);
+                    il.AddInstruction(il.Store(op.inputs[1].size, offset, val));
                 } else if (op.opcode == CPUI_BRANCH) { // 4
                     //https://github.com/Vector35/arch-mips/blob/staging/il.cpp#L144
                     uint64_t target = op.inputs[0].getAddr().getOffset();
@@ -366,7 +381,7 @@ public:
                     uint64_t target_false = addr + len;
 
                     BNLowLevelILLabel* label_true = il.GetLabelForAddress(this, target_true);
-                    BNLowLevelILLabel* label_false = il.GetLabelForAddress(this, target_true);
+                    BNLowLevelILLabel* label_false = il.GetLabelForAddress(this, target_false);
 
                     // Jump to label if it exists, otherwise create it
                     LowLevelILLabel code_true, code_false;
@@ -387,12 +402,40 @@ public:
                         il.MarkLabel(code_false);
                         il.AddInstruction(il.Jump(il.ConstPointer(m_addr_size, target_false)));
                     }
+                } else if (op.opcode == CPUI_CALL){ // 7
+                    uint64_t target = op.inputs[0].getAddr().getOffset();
+                    il.AddInstruction(il.Call(il.ConstPointer(m_addr_size, target)));
+                } else if (op.opcode == CPUI_CALLIND){ // 8
+                    ExprId target = ILReadVarNode(il, op.inputs[0]);
+                    il.AddInstruction(il.Call(target));
+                } else if (op.opcode == CPUI_CALLOTHER){ // 10
+                    il.AddInstruction(il.Intrinsic({}, op.inputs[0].offset, {}));
                 } else if (op.opcode == CPUI_RETURN){ // 10
                     il.AddInstruction(il.Return(ILReadVarNode(il, op.inputs[0])));
                 } else if (op.opcode == CPUI_INT_EQUAL){ // 11
                     ExprId a = ILReadVarNode(il, op.inputs[0]);
                     ExprId b = ILReadVarNode(il, op.inputs[1]);
                     il.AddInstruction(ILWriteVarnode(il, *op.output, il.CompareEqual(op.output->size, a, b)));
+                } else if (op.opcode == CPUI_INT_NOTEQUAL){ // 12
+                    ExprId a = ILReadVarNode(il, op.inputs[0]);
+                    ExprId b = ILReadVarNode(il, op.inputs[1]);
+                    il.AddInstruction(ILWriteVarnode(il, *op.output, il.CompareNotEqual(op.output->size, a, b)));
+                } else if (op.opcode == CPUI_INT_SLESS){ // 13
+                    ExprId a = ILReadVarNode(il, op.inputs[0]);
+                    ExprId b = ILReadVarNode(il, op.inputs[1]);
+                    il.AddInstruction(ILWriteVarnode(il, *op.output, il.CompareSignedLessThan(op.output->size, a, b)));
+                } else if (op.opcode == CPUI_INT_SLESSEQUAL){ // 14
+                    ExprId a = ILReadVarNode(il, op.inputs[0]);
+                    ExprId b = ILReadVarNode(il, op.inputs[1]);
+                    il.AddInstruction(ILWriteVarnode(il, *op.output, il.CompareSignedLessEqual(op.output->size, a, b)));
+                } else if (op.opcode == CPUI_INT_LESS){ // 15
+                    ExprId a = ILReadVarNode(il, op.inputs[0]);
+                    ExprId b = ILReadVarNode(il, op.inputs[1]);
+                    il.AddInstruction(ILWriteVarnode(il, *op.output, il.CompareUnsignedLessThan(op.output->size, a, b)));
+                } else if (op.opcode == CPUI_INT_LESSEQUAL){ // 16
+                    ExprId a = ILReadVarNode(il, op.inputs[0]);
+                    ExprId b = ILReadVarNode(il, op.inputs[1]);
+                    il.AddInstruction(ILWriteVarnode(il, *op.output, il.CompareUnsignedLessEqual(op.output->size, a, b)));
                 } else if (op.opcode == CPUI_INT_ZEXT){ // 17
                     ExprId a = ILReadVarNode(il, op.inputs[0]);
                     il.AddInstruction(ILWriteVarnode(il, *op.output, il.ZeroExtend(op.output->size, a)));
@@ -413,6 +456,11 @@ public:
                     ExprId res = il.Add(op.inputs[0].size + 1, a, b);
                     ExprId carry = il.And(op.inputs[0].size, il.LogicalShiftRight(op.inputs[0].size, res, il.Const(4, op.inputs[0].size * 8)), il.Const(4, 1));
                     il.AddInstruction(ILWriteVarnode(il, *op.output, carry));
+                } else if (op.opcode == CPUI_INT_SCARRY){ // 22
+                    // Does this work?
+                    ExprId a = ILReadVarNode(il, op.inputs[0]);
+                    ExprId b = ILReadVarNode(il, op.inputs[1]);
+                    il.AddInstruction(il.AddCarry(op.inputs[0].size, a, b, il.Flag(op.output->offset), 1));
                 } else if (op.opcode == CPUI_INT_XOR){ // 26
                     ExprId a = ILReadVarNode(il, op.inputs[0]);
                     ExprId b = ILReadVarNode(il, op.inputs[1]);
@@ -425,9 +473,54 @@ public:
                     ExprId a = ILReadVarNode(il, op.inputs[0]);
                     ExprId b = ILReadVarNode(il, op.inputs[1]);
                     il.AddInstruction(ILWriteVarnode(il, *op.output, il.Or(op.output->size, a, b)));
+                } else if (op.opcode == CPUI_INT_LEFT){ // 29
+                    ExprId a = ILReadVarNode(il, op.inputs[0]);
+                    ExprId b = ILReadVarNode(il, op.inputs[1]);
+                    il.AddInstruction(ILWriteVarnode(il, *op.output, il.ShiftLeft(op.output->size, a, b)));
+                } else if (op.opcode == CPUI_INT_RIGHT){ // 30
+                    ExprId a = ILReadVarNode(il, op.inputs[0]);
+                    ExprId b = ILReadVarNode(il, op.inputs[1]);
+                    il.AddInstruction(ILWriteVarnode(il, *op.output, il.LogicalShiftRight(op.output->size, a, b)));
+                } else if (op.opcode == CPUI_INT_SRIGHT){ // 31
+                    ExprId a = ILReadVarNode(il, op.inputs[0]);
+                    ExprId b = ILReadVarNode(il, op.inputs[1]);
+                    il.AddInstruction(ILWriteVarnode(il, *op.output, il.ArithShiftRight(op.output->size, a, b)));
+                } else if (op.opcode == CPUI_INT_MULT){ // 32
+                    ExprId a = ILReadVarNode(il, op.inputs[0]);
+                    ExprId b = ILReadVarNode(il, op.inputs[1]);
+                    il.AddInstruction(ILWriteVarnode(il, *op.output, il.Mult(op.output->size, a, b)));
+                } else if (op.opcode == CPUI_INT_DIV){ // 33
+                    ExprId a = ILReadVarNode(il, op.inputs[0]);
+                    ExprId b = ILReadVarNode(il, op.inputs[1]);
+                    il.AddInstruction(ILWriteVarnode(il, *op.output, il.DivUnsigned(op.output->size, a, b)));
+                } else if (op.opcode == CPUI_INT_SDIV){ // 34
+                    ExprId a = ILReadVarNode(il, op.inputs[0]);
+                    ExprId b = ILReadVarNode(il, op.inputs[1]);
+                    il.AddInstruction(ILWriteVarnode(il, *op.output, il.DivSigned(op.output->size, a, b)));
+                } else if (op.opcode == CPUI_BOOL_NEGATE){ // 37
+                    ExprId a = ILReadVarNode(il, op.inputs[0]);
+                    ExprId out = il.CompareEqual(op.output->size, a, il.Const(op.output->size, 0));
+                    il.AddInstruction(ILWriteVarnode(il, *op.output, out));
+                } else if (op.opcode == CPUI_BOOL_XOR){ // 38
+                    ExprId a = ILReadVarNode(il, op.inputs[0]);
+                    ExprId b = ILReadVarNode(il, op.inputs[1]);
+                    ExprId out = il.BoolToInt(op.output->size, il.Xor(op.output->size, a, b));
+                    il.AddInstruction(ILWriteVarnode(il, *op.output, out));
+                } else if (op.opcode == CPUI_BOOL_AND){ // 39
+                    ExprId a = ILReadVarNode(il, op.inputs[0]);
+                    ExprId b = ILReadVarNode(il, op.inputs[1]);
+                    ExprId out = il.BoolToInt(op.output->size, il.And(op.output->size, a, b));
+                    il.AddInstruction(ILWriteVarnode(il, *op.output, out));
+                } else if (op.opcode == CPUI_BOOL_OR){ // 40
+                    ExprId a = ILReadVarNode(il, op.inputs[0]);
+                    ExprId b = ILReadVarNode(il, op.inputs[1]);
+                    ExprId out = il.BoolToInt(op.output->size, il.Or(op.output->size, a, b));
+                    il.AddInstruction(ILWriteVarnode(il, *op.output, out));
                 } else if (op.opcode == CPUI_SUBPIECE){ // 63
                     ExprId a = il.LowPart(op.inputs[1].size, ILReadVarNode(il, op.inputs[0]));
                     il.AddInstruction(ILWriteVarnode(il, *op.output, a));
+                } else {
+                    LogInfo("%s", ss.str().c_str());
                 }
             }
 
