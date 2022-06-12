@@ -81,9 +81,9 @@ public:
 };
 
 typedef struct {
-	OpCode opcode;
-	std::optional<VarnodeData> output;
-	std::vector<VarnodeData> inputs;
+    OpCode opcode;
+    std::optional<VarnodeData> output;
+    std::vector<VarnodeData> inputs;
 } PcodeOp;
 
 class PcodeEmitCacher : public PcodeEmit
@@ -145,7 +145,7 @@ class PcodeArchitecture : public Architecture {
     BNEndianness m_endianness;
 
 public:
-	PcodeArchitecture(const std::string& name): Architecture("pcode_" + name) {
+    PcodeArchitecture(const std::string& name): Architecture("pcode_" + name) {
         // TODO: embed sla files inside plugin .so
         const std::string path = "/home/willem/Development/binaryninja-pcode/build/out/sla/" + name + ".sla";
 
@@ -187,7 +187,7 @@ public:
         }
 
         LogInfo("Done loading: %s", path.c_str());
-	}
+    }
 
     BNEndianness GetEndianness() const override {
         return m_endianness;
@@ -197,7 +197,7 @@ public:
         return m_addr_size;
     }
 
-	virtual vector<uint32_t> GetFullWidthRegisters() override {
+    virtual vector<uint32_t> GetFullWidthRegisters() override {
         std::vector<uint32_t> res;
         for (auto const& [num, varnode] : m_register_varnodes) {
             res.push_back(num);
@@ -205,7 +205,7 @@ public:
         return res;
     }
 
-	virtual vector<uint32_t> GetAllRegisters() override {
+    virtual vector<uint32_t> GetAllRegisters() override {
         std::vector<uint32_t> res;
         for (auto const& [num, varnode] : m_register_varnodes) {
             res.push_back(num);
@@ -217,9 +217,9 @@ public:
         VarnodeData reg_node = m_register_varnodes[reg];
 
         // TODO, handle overlapping registers
-		BNRegisterInfo result = {reg, 0, reg_node.size, NoExtend};
-		return result;
-	}
+        BNRegisterInfo result = {reg, 0, reg_node.size, NoExtend};
+        return result;
+    }
 
     virtual string GetRegisterName(uint32_t reg) override {
         return m_register_names[reg];
@@ -227,6 +227,30 @@ public:
 
     virtual string GetIntrinsicName(uint32_t intrinsic) override {
         return m_userops[intrinsic];
+    }
+
+    uint32_t find_register_by_name(std::string name) {
+        for (uint32_t i = 0; i < 1000; i++) {
+            if (GetRegisterName(i) == name) {
+                return i;
+            }
+        }
+        assert(false);
+        return 0;
+    }
+
+	virtual uint32_t GetStackPointerRegister() override {
+		return find_register_by_name("sp");
+	}
+
+	virtual uint32_t GetLinkRegister() override {
+		return find_register_by_name("lp");
+	}
+
+	virtual string GetFlagName(uint32_t reg) override {
+        stringstream ss;
+        ss << std::setfill ('0') << std::setw(4) << std::hex << reg;
+        return "$U" + ss.str();
     }
 
 
@@ -541,8 +565,8 @@ class V850CallingConvention: public CallingConvention
 {
     Architecture *m_arch;
 public:
-	V850CallingConvention(Architecture* arch): CallingConvention(arch, "default"), m_arch(arch) {
-	}
+    V850CallingConvention(Architecture* arch): CallingConvention(arch, "default"), m_arch(arch) {
+    }
 
     uint32_t find_by_name(std::string name) {
         for (uint32_t i = 0; i < 1000; i++) {
@@ -550,25 +574,40 @@ public:
                 return i;
             }
         }
+        assert(false);
         return 0;
     }
 
-	virtual uint32_t GetIntegerReturnValueRegister() override {
-		return find_by_name("r10");
-	}
+    virtual uint32_t GetIntegerReturnValueRegister() override {
+        return find_by_name("r10");
+    }
 
-	virtual uint32_t GetHighIntegerReturnValueRegister() override {
-		return find_by_name("r11");
-	}
+    virtual uint32_t GetHighIntegerReturnValueRegister() override {
+        return find_by_name("r11");
+    }
 
-	virtual vector<uint32_t> GetIntegerArgumentRegisters() override {
-		return vector<uint32_t> {
+    virtual vector<uint32_t> GetIntegerArgumentRegisters() override {
+        return vector<uint32_t> {
             find_by_name("r6"),
             find_by_name("r7"),
             find_by_name("r8"),
             find_by_name("r9"),
-		};
-	}
+        };
+    }
+    virtual vector<uint32_t> GetCallerSavedRegisters() override {
+        return vector<uint32_t> {
+            find_by_name("r20"),
+            find_by_name("r21"),
+            find_by_name("r22"),
+            find_by_name("r23"),
+            find_by_name("r24"),
+            find_by_name("r25"),
+            find_by_name("r26"),
+            find_by_name("r27"),
+            find_by_name("r28"),
+            find_by_name("r29"),
+        };
+    }
 };
 
 
