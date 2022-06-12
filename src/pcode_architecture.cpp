@@ -14,6 +14,17 @@
 
 using namespace BinaryNinja;
 
+template<typename ... Args>
+std::string format( const std::string& format, Args ... args )
+{
+    int size_s = std::snprintf( nullptr, 0, format.c_str(), args ... ) + 1; // Extra space for '\0'
+    if( size_s <= 0 ){ throw std::runtime_error( "Error during formatting." ); }
+    auto size = static_cast<size_t>( size_s );
+    std::unique_ptr<char[]> buf( new char[ size ] );
+    std::snprintf( buf.get(), size, format.c_str(), args ... );
+    return std::string( buf.get(), buf.get() + size - 1 ); // We don't want the '\0' inside
+}
+
 // https://github.com/angr/pypcode/blob/master/pypcode/native/csleigh.cc
 class SimpleLoadImage : public LoadImage
 {
@@ -275,7 +286,7 @@ public:
         }
     }
 
-    std::optional<ExprId> ReadIL(LowLevelILFunction& il, VarnodeData data) {
+    ExprId ILReadVarNode(LowLevelILFunction& il, VarnodeData data) {
         spacetype typ = data.space->getType();
 
         if (typ == IPTR_CONSTANT) {
@@ -283,30 +294,25 @@ public:
         } else if (typ == IPTR_PROCESSOR) { // Registers
             return il.Register(data.size, m_register_nums[data]);
         } else if (typ == IPTR_INTERNAL) { // Temporaries
-            return il.Flag(data.offset);
+            return il.LowPart(data.size, il.Flag(data.offset));
         } else {
             LogWarn("read unknown space %d", typ);
+            return il.Undefined();
         }
-        return {};
     }
 
-    ExprId WriteIL(LowLevelILFunction& il, VarnodeData dst, std::optional<ExprId> src) {
-        if (!src) {
-            return il.Undefined();
-        }
-
+    ExprId ILWriteVarnode(LowLevelILFunction& il, VarnodeData dst, ExprId src) {
         spacetype typ = dst.space->getType();
 
-        if (typ == IPTR_CONSTANT) {
-            return il.Undefined();
-        } else if (typ == IPTR_PROCESSOR) { // Registers
-            return il.SetRegister(dst.size, m_register_nums[dst], *src);
+        if (typ == IPTR_PROCESSOR) { // Registers
+            return il.SetRegister(dst.size, m_register_nums[dst], src);
         } else if (typ == IPTR_INTERNAL) { // Temporaries
-            return il.SetFlag(dst.offset, *src);
+            ExprId tmp = il.LowPart(dst.size, src); // Truncate to output size
+            return il.SetFlag(dst.offset, tmp);
         } else {
             LogWarn("write unknown space %d", typ);
+            return il.Undefined();
         }
-        return il.Undefined();
     }
 
     bool GetInstructionLowLevelIL(const uint8_t* data, uint64_t addr, size_t& len, LowLevelILFunction& il) override {
@@ -322,24 +328,111 @@ public:
             len = m_sleigh->oneInstruction(pcode, pcode_addr);
 
             for (auto const &op : pcode.m_ops) {
-                if (op.opcode == CPUI_COPY) {
-                    il.AddInstruction(WriteIL(il, *op.output, ReadIL(il, op.inputs[0])));
-                } else if (op.opcode == CPUI_LOAD) {
-                    LogInfo("addr 0x%lx - CPUI_LOAD", addr);
-                } else if (op.opcode == CPUI_BRANCH) {
+
+                // if (addr = 0x19e0) {
+                stringstream ss;
+                ss << format("[0x%lx] opcode %d ", addr, op.opcode);
+                if (op.output) {
+                    ss << format("output - space: %d - size: %d - offset: 0x%lx, ", op.output->space->getType(), op.output->size, op.output->offset);
+                }
+                for (int i = 0; i < op.inputs.size(); i++) {
+                    ss << format("input[%d] - space: %d - size: %d - offset: 0x%lx, ", i, op.inputs[i].space->getType(), op.inputs[i].size, op.inputs[i].offset);
+                }
+                LogInfo("%s", ss.str().c_str());
+
+                if (op.opcode == CPUI_COPY) { // 1
+                    il.AddInstruction(ILWriteVarnode(il, *op.output, ILReadVarNode(il, op.inputs[0])));
+                } else if (op.opcode == CPUI_LOAD) { // 2
+                    // Input 0 contains some information about the space, input 1 is a temporary with an offset in the space
+                    // Assume offset is into RAM for now
+                    ExprId offset = ILReadVarNode(il, op.inputs[1]);
+                    ExprId val = il.Load(op.output->size, offset);
+                    il.AddInstruction(ILWriteVarnode(il, *op.output, val));
+                } else if (op.opcode == CPUI_BRANCH) { // 4
+                    //https://github.com/Vector35/arch-mips/blob/staging/il.cpp#L144
                     uint64_t target = op.inputs[0].getAddr().getOffset();
+
                     BNLowLevelILLabel* label = il.GetLabelForAddress(this, target);
                     if (label) {
                         il.AddInstruction(il.Goto(*label));
                     } else {
                         il.AddInstruction(il.Jump(il.ConstPointer(m_addr_size, target)));
                     }
+                } else if (op.opcode == CPUI_CBRANCH) { // 5
+                    //https://github.com/Vector35/arch-mips/blob/staging/il.cpp#L154
+                    ExprId cond = ILReadVarNode(il, op.inputs[1]);
+
+                    uint64_t target_true = op.inputs[0].getAddr().getOffset();
+                    uint64_t target_false = addr + len;
+
+                    BNLowLevelILLabel* label_true = il.GetLabelForAddress(this, target_true);
+                    BNLowLevelILLabel* label_false = il.GetLabelForAddress(this, target_true);
+
+                    // Jump to label if it exists, otherwise create it
+                    LowLevelILLabel code_true, code_false;
+                    if (label_true && label_false) {
+                        il.AddInstruction(il.If(cond, *label_true, *label_false));
+                    } else if (label_true) {
+                        il.AddInstruction(il.If(cond, *label_true, code_false));
+                        il.MarkLabel(code_false);
+                        il.AddInstruction(il.Jump(il.ConstPointer(m_addr_size, target_false)));
+                    } else if (label_false) {
+                        il.AddInstruction(il.If(cond, code_true, *label_false));
+                        il.MarkLabel(code_true);
+                        il.AddInstruction(il.Jump(il.ConstPointer(m_addr_size, target_true)));
+                    } else {
+                        il.AddInstruction(il.If(cond, code_true, code_false));
+                        il.MarkLabel(code_true);
+                        il.AddInstruction(il.Jump(il.ConstPointer(m_addr_size, target_true)));
+                        il.MarkLabel(code_false);
+                        il.AddInstruction(il.Jump(il.ConstPointer(m_addr_size, target_false)));
+                    }
+                } else if (op.opcode == CPUI_RETURN){ // 10
+                    il.AddInstruction(il.Return(ILReadVarNode(il, op.inputs[0])));
+                } else if (op.opcode == CPUI_INT_EQUAL){ // 11
+                    ExprId a = ILReadVarNode(il, op.inputs[0]);
+                    ExprId b = ILReadVarNode(il, op.inputs[1]);
+                    il.AddInstruction(ILWriteVarnode(il, *op.output, il.CompareEqual(op.output->size, a, b)));
+                } else if (op.opcode == CPUI_INT_ZEXT){ // 17
+                    ExprId a = ILReadVarNode(il, op.inputs[0]);
+                    il.AddInstruction(ILWriteVarnode(il, *op.output, il.ZeroExtend(op.output->size, a)));
+                } else if (op.opcode == CPUI_INT_SEXT){ // 18
+                    ExprId a = ILReadVarNode(il, op.inputs[0]);
+                    il.AddInstruction(ILWriteVarnode(il, *op.output, il.SignExtend(op.output->size, a)));
+                } else if (op.opcode == CPUI_INT_ADD){ // 19
+                    ExprId a = ILReadVarNode(il, op.inputs[0]);
+                    ExprId b = ILReadVarNode(il, op.inputs[1]);
+                    il.AddInstruction(ILWriteVarnode(il, *op.output, il.Add(op.output->size, a, b)));
+                } else if (op.opcode == CPUI_INT_SUB){ // 20
+                    ExprId a = ILReadVarNode(il, op.inputs[0]);
+                    ExprId b = ILReadVarNode(il, op.inputs[1]);
+                    il.AddInstruction(ILWriteVarnode(il, *op.output, il.Sub(op.output->size, a, b)));
+                } else if (op.opcode == CPUI_INT_CARRY){ // 21
+                    ExprId a = ILReadVarNode(il, op.inputs[0]);
+                    ExprId b = ILReadVarNode(il, op.inputs[1]);
+                    ExprId res = il.Add(op.inputs[0].size + 1, a, b);
+                    ExprId carry = il.And(op.inputs[0].size, il.LogicalShiftRight(op.inputs[0].size, res, il.Const(4, op.inputs[0].size * 8)), il.Const(4, 1));
+                    il.AddInstruction(ILWriteVarnode(il, *op.output, carry));
+                } else if (op.opcode == CPUI_INT_XOR){ // 26
+                    ExprId a = ILReadVarNode(il, op.inputs[0]);
+                    ExprId b = ILReadVarNode(il, op.inputs[1]);
+                    il.AddInstruction(ILWriteVarnode(il, *op.output, il.Xor(op.output->size, a, b)));
+                } else if (op.opcode == CPUI_INT_AND){ // 27
+                    ExprId a = ILReadVarNode(il, op.inputs[0]);
+                    ExprId b = ILReadVarNode(il, op.inputs[1]);
+                    il.AddInstruction(ILWriteVarnode(il, *op.output, il.And(op.output->size, a, b)));
+                } else if (op.opcode == CPUI_INT_OR){ // 28
+                    ExprId a = ILReadVarNode(il, op.inputs[0]);
+                    ExprId b = ILReadVarNode(il, op.inputs[1]);
+                    il.AddInstruction(ILWriteVarnode(il, *op.output, il.Or(op.output->size, a, b)));
+                } else if (op.opcode == CPUI_SUBPIECE){ // 63
+                    ExprId a = il.LowPart(op.inputs[1].size, ILReadVarNode(il, op.inputs[0]));
+                    il.AddInstruction(ILWriteVarnode(il, *op.output, a));
                 }
             }
 
             return true;
         } catch (...) {
-            il.AddInstruction(il.Undefined());
             return false;
         }
     }
