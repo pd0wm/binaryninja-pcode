@@ -84,7 +84,9 @@ qt_add_resources(${PROJECT_NAME} "sla"
 )
 
 target_link_libraries(${PROJECT_NAME}
-    binaryninjaapi)
+    binaryninjaapi
+	Qt6::Core
+)
 
 set_target_properties(${PROJECT_NAME} PROPERTIES
     CXX_STANDARD 17
@@ -92,6 +94,7 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
     CXX_STANDARD_REQUIRED ON
     VISIBILITY_INLINES_HIDDEN ON
     POSITION_INDEPENDENT_CODE ON
-    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/out/bin)
+    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/out/bin
+)
 
 bn_install_plugin(${PROJECT_NAME})
