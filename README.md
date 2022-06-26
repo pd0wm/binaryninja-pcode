@@ -25,7 +25,8 @@ LOAD_SLA="x86-64" ~/binaryninja/binaryninja
  - The plugin does not set the sleigh context specified in the .pspec. For x86-64 this is current hard-coded. If you get unexpected results like wrong instruction sizes, try setting the context for you architecture manually.
  - No support for calling conventions or special registers (e.g. `sp`, `lp`).
  - Overlapping registers are not handled. E.g. `rax` and `eax` are treated as separate registers.
- - The disassembly is not tokenized into numbers and addresses, so clickin on an address doesn't work.
+ - The disassembly is not tokenized into numbers and addresses, so clicking on an address doesn't work.
+ - Translation from pcode to IL is missing some instructions, and there are probably bugs
 
 ![Verbose Pseudo C output from Binary Ninja compared to Ghidra](img/decompiler.png)
 *Verbose Pseudo C output from Binary Ninja compared to Ghidra. Architecture V850 - Binary: some VW ecu dump.*
