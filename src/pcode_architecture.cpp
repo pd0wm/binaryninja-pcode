@@ -167,6 +167,15 @@ public:
         m_sleigh.reset(new Sleigh(&m_loader, &m_context_internal));
         m_sleigh->initialize(m_document_storage);
 
+        // TODO: get from pspec
+        if (sla.baseName() == "x86-64") {
+            m_sleigh->setContextDefault("addrsize", 2);
+            m_sleigh->setContextDefault("bit64", 1);
+            m_sleigh->setContextDefault("opsize", 1);
+            m_sleigh->setContextDefault("rexprefix", 0);
+            m_sleigh->setContextDefault("longMode", 1);
+        }
+
         m_addr_size = m_sleigh->getDefaultCodeSpace()->getAddrSize();
         m_endianness = m_sleigh->getDefaultCodeSpace()->isBigEndian() ? BigEndian : LittleEndian;
 
