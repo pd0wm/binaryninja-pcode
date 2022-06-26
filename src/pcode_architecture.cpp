@@ -176,7 +176,7 @@ public:
         m_sleigh->getAllRegisters(registers);
         int i = 0;
         for (auto const& [varnode, name] : registers) {
-            LogInfo("%d - size %d offset %ld name %s", i, varnode.size, varnode.offset, name.c_str());
+            LogInfo("%d - size %d offset %llu name %s", i, varnode.size, varnode.offset, name.c_str());
             m_register_nums[varnode] = i;
             m_register_varnodes[i] = varnode;
             m_register_names[i] = name;
@@ -274,6 +274,8 @@ public:
                     break;
                 case CPUI_RETURN:
                     result.AddBranch(FunctionReturn);
+                    break;
+                default:
                     break;
                 }
             }
