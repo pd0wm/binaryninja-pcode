@@ -37,23 +37,19 @@ class SimpleLoadImage : public LoadImage
     const unsigned char *m_data;
 
 public:
-    SimpleLoadImage()
-    : LoadImage("nofile")
-    {
+    SimpleLoadImage() : LoadImage("nofile") {
         m_baseaddr = 0;
         m_data = NULL;
         m_length = 0;
     }
 
-    void setData(uintb ad, const unsigned char *ptr,int4 sz)
-    {
+    void setData(uintb ad, const unsigned char *ptr,int4 sz) {
         m_baseaddr = ad;
         m_data = ptr;
         m_length = sz;
     }
 
-    void loadFill(uint1 *ptr, int4 size, const Address &addr)
-    {
+    void loadFill(uint1 *ptr, int4 size, const Address &addr) {
         uintb start = addr.getOffset();
         uintb max = m_baseaddr + m_length - 1;
 
@@ -90,10 +86,8 @@ typedef struct {
     std::vector<VarnodeData> inputs;
 } PcodeOp;
 
-class PcodeEmitCacher : public PcodeEmit
-{
+class PcodeEmitCacher : public PcodeEmit {
 public:
-    // vector<unique_ptr<Varnode>> m_vars;
     vector<PcodeOp>             m_ops;
 
     PcodeEmitCacher() {
@@ -116,15 +110,13 @@ public:
     }
 };
 
-class AssemblyEmitCacher : public AssemblyEmit
-{
+class AssemblyEmitCacher : public AssemblyEmit {
 public:
     Address  m_addr;
     string   m_mnem;
     string   m_body;
 
-    void dump(const Address &addr, const string &mnem, const string &body)
-    {
+    void dump(const Address &addr, const string &mnem, const string &body) {
         m_addr = addr;
         m_mnem = mnem;
         m_body = body;
