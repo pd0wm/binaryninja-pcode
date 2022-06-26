@@ -229,25 +229,7 @@ public:
         return m_userops[intrinsic];
     }
 
-    uint32_t find_register_by_name(std::string name) {
-        for (uint32_t i = 0; i < 1000; i++) {
-            if (GetRegisterName(i) == name) {
-                return i;
-            }
-        }
-        assert(false);
-        return 0;
-    }
-
-	virtual uint32_t GetStackPointerRegister() override {
-		return find_register_by_name("sp");
-	}
-
-	virtual uint32_t GetLinkRegister() override {
-		return find_register_by_name("lp");
-	}
-
-	virtual string GetFlagName(uint32_t reg) override {
+    virtual string GetFlagName(uint32_t reg) override {
         stringstream ss;
         ss << std::setfill ('0') << std::setw(4) << std::hex << reg;
         return "$U" + ss.str();
@@ -360,17 +342,6 @@ public:
             len = m_sleigh->oneInstruction(pcode, pcode_addr);
 
             for (auto const &op : pcode.m_ops) {
-
-                // if (addr = 0x19e0) {
-                stringstream ss;
-                ss << format("[0x%lx] opcode %d ", addr, op.opcode);
-                if (op.output) {
-                    ss << format("output - space: %d - size: %d - offset: 0x%lx, ", op.output->space->getType(), op.output->size, op.output->offset);
-                }
-                for (int i = 0; i < op.inputs.size(); i++) {
-                    ss << format("input[%d] - space: %d - size: %d - offset: 0x%lx, ", i, op.inputs[i].space->getType(), op.inputs[i].size, op.inputs[i].offset);
-                }
-
                 if (op.opcode == CPUI_COPY) { // 1
                     il.AddInstruction(ILWriteVarnode(il, *op.output, ILReadVarNode(il, op.inputs[0])));
                 } else if (op.opcode == CPUI_LOAD) { // 2
@@ -547,6 +518,14 @@ public:
                     ExprId a = il.LowPart(op.inputs[1].size, ILReadVarNode(il, op.inputs[0]));
                     il.AddInstruction(ILWriteVarnode(il, *op.output, a));
                 } else {
+                    stringstream ss;
+                    ss << format("[0x%lx] unknown opcode %d ", addr, op.opcode);
+                    if (op.output) {
+                        ss << format("output - space: %d - size: %d - offset: 0x%lx, ", op.output->space->getType(), op.output->size, op.output->offset);
+                    }
+                    for (int i = 0; i < op.inputs.size(); i++) {
+                        ss << format("input[%d] - space: %d - size: %d - offset: 0x%lx, ", i, op.inputs[i].space->getType(), op.inputs[i].size, op.inputs[i].offset);
+                    }
                     LogInfo("%s", ss.str().c_str());
                 }
             }
@@ -561,55 +540,6 @@ public:
 
 };
 
-class V850CallingConvention: public CallingConvention
-{
-    Architecture *m_arch;
-public:
-    V850CallingConvention(Architecture* arch): CallingConvention(arch, "default"), m_arch(arch) {
-    }
-
-    uint32_t find_by_name(std::string name) {
-        for (uint32_t i = 0; i < 1000; i++) {
-            if (m_arch->GetRegisterName(i) == name) {
-                return i;
-            }
-        }
-        assert(false);
-        return 0;
-    }
-
-    virtual uint32_t GetIntegerReturnValueRegister() override {
-        return find_by_name("r10");
-    }
-
-    virtual uint32_t GetHighIntegerReturnValueRegister() override {
-        return find_by_name("r11");
-    }
-
-    virtual vector<uint32_t> GetIntegerArgumentRegisters() override {
-        return vector<uint32_t> {
-            find_by_name("r6"),
-            find_by_name("r7"),
-            find_by_name("r8"),
-            find_by_name("r9"),
-        };
-    }
-    virtual vector<uint32_t> GetCallerSavedRegisters() override {
-        return vector<uint32_t> {
-            find_by_name("r20"),
-            find_by_name("r21"),
-            find_by_name("r22"),
-            find_by_name("r23"),
-            find_by_name("r24"),
-            find_by_name("r25"),
-            find_by_name("r26"),
-            find_by_name("r27"),
-            find_by_name("r28"),
-            find_by_name("r29"),
-        };
-    }
-};
-
 
 extern "C"
 {
@@ -620,9 +550,6 @@ extern "C"
         try {
             Architecture* arch = new PcodeArchitecture("V850");
             Architecture::Register(arch);
-
-            V850CallingConvention *v850 = new V850CallingConvention(arch);
-            arch->RegisterCallingConvention(v850);
 
             return true;
         } catch (...) {
