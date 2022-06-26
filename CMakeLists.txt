@@ -22,6 +22,8 @@ endif()
 
 find_package(Qt6 REQUIRED COMPONENTS Core)
 
+set (CMAKE_CXX_STANDARD 17)
+
 set(SLEIGH_COMMON
 	third_party/ghidra/Ghidra/Features/Decompiler/src/decompile/cpp/address.cc
 	third_party/ghidra/Ghidra/Features/Decompiler/src/decompile/cpp/context.cc
