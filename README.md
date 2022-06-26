@@ -6,6 +6,7 @@ This plugin serves as a bridge between Binary Ninja and Ghidra's disassembler. T
 
 
 # Compilation
+Ensure the repository is cloned with submodules (`git submodule update --init`).
 ```bash
 mkdir build
 cd build
@@ -26,7 +27,7 @@ LOAD_SLA="x86-64" ~/binaryninja/binaryninja
  - No support for calling conventions or special registers (e.g. `sp`, `lp`).
  - Overlapping registers are not handled. E.g. `rax` and `eax` are treated as separate registers.
  - The disassembly is not tokenized into numbers and addresses, so clicking on an address doesn't work.
- - Translation from pcode to IL is missing some instructions, and there are probably bugs
+ - Translation from pcode to IL is missing some instructions, and there are probably bugs.
 
 ![Verbose Pseudo C output from Binary Ninja compared to Ghidra](img/decompiler.png)
 *Verbose Pseudo C output from Binary Ninja compared to Ghidra. Architecture V850 - Binary: some VW ecu dump.*
