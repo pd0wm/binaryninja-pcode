@@ -20,6 +20,8 @@ if(NOT BN_INTERNAL_BUILD)
 	add_subdirectory(${BN_API_PATH} ${PROJECT_BINARY_DIR}/api)
 endif()
 
+find_package(Qt6 REQUIRED COMPONENTS Core)
+
 set(SLEIGH_COMMON
 	third_party/ghidra/Ghidra/Features/Decompiler/src/decompile/cpp/address.cc
 	third_party/ghidra/Ghidra/Features/Decompiler/src/decompile/cpp/context.cc
@@ -62,12 +64,21 @@ foreach(slaspec ${slaspec_FILES})
     list(APPEND SLA_FILES ${CMAKE_BINARY_DIR}/out/sla/${sla}.sla)
 endforeach()
 
-include_directories(.)
+include_directories(
+  .
+  ${Qt6Core_INCLUDE_DIRS}
+)
 
 add_library(${PROJECT_NAME} SHARED
     ${SLEIGH_COMMON}
     ${SLA_FILES}
     src/pcode_architecture.cpp
+)
+
+qt_add_resources(${PROJECT_NAME} "sla"
+    PREFIX "/"
+    BASE ${CMAKE_BINARY_DIR}
+    FILES ${SLA_FILES}
 )
 
 target_link_libraries(${PROJECT_NAME}

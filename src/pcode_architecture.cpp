@@ -9,6 +9,10 @@
 #include "third_party/ghidra/Ghidra/Features/Decompiler/src/decompile/cpp/sleigh.hh"
 #include "third_party/ghidra/Ghidra/Features/Decompiler/src/decompile/cpp/loadimage.hh"
 
+#include <QDirIterator>
+#include <QTemporaryFile>
+#include <QProcessEnvironment>
+
 #include "binaryninjaapi.h"
 #include "lowlevelilinstruction.h"
 
@@ -145,18 +149,18 @@ class PcodeArchitecture : public Architecture {
     BNEndianness m_endianness;
 
 public:
-    PcodeArchitecture(const std::string& name): Architecture("pcode_" + name) {
-        // TODO: embed sla files inside plugin .so
-        const std::string path = "/home/willem/Development/binaryninja-pcode/build/out/sla/" + name + ".sla";
+    PcodeArchitecture(QFileInfo sla): Architecture("pcode_" + sla.baseName().toStdString()) {
+        QFile qrc_file(sla.absoluteFilePath());
+        QTemporaryFile * tmp_file = QTemporaryFile::createNativeFile(qrc_file); // Returns a pointer to a temporary file
+        const std::string tmp_path = tmp_file->fileName().toStdString();
 
-        LogInfo("Opening sla: %s", path.c_str());
-        m_document = m_document_storage.openDocument(path);
+        qWarning() << "Loading" << sla.baseName();
         try {
-            m_document = m_document_storage.openDocument(path);
+            m_document = m_document_storage.openDocument(tmp_path);
             m_tags = m_document->getRoot();
             m_document_storage.registerTag(m_tags);
         } catch (...) {
-            LogError("Error opening %s", path.c_str());
+            LogError("Error opening %s", tmp_path.c_str());
             throw;
         }
 
@@ -185,8 +189,6 @@ public:
             LogInfo("%d - %s", i, op.c_str());
             i++;
         }
-
-        LogInfo("Done loading: %s", path.c_str());
     }
 
     BNEndianness GetEndianness() const override {
@@ -547,13 +549,32 @@ extern "C"
 
 
     BINARYNINJAPLUGIN bool CorePluginInit() {
-        try {
-            Architecture* arch = new PcodeArchitecture("V850");
-            Architecture::Register(arch);
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
 
-            return true;
-        } catch (...) {
-            return false;
+        if (!env.contains("LOAD_SLA")) {
+            QDirIterator it(":/out/sla", QDirIterator::Subdirectories);
+            stringstream ss;
+            while (it.hasNext()) {
+                it.next();
+                ss << it.fileInfo().baseName().toStdString() << " ";
+            }
+            qWarning().noquote() << "LOAD_SLA environment variable not set. Available values: all" << QString::fromStdString(ss.str());
         }
+
+        QString to_load = env.value("LOAD_SLA", "all");
+
+        QDirIterator it(":/out/sla", QDirIterator::Subdirectories);
+        while (it.hasNext()) {
+            it.next();
+            QFileInfo f = it.fileInfo();
+            if (f.baseName() != to_load && to_load != "all") {
+                continue;
+            }
+
+            Architecture* arch = new PcodeArchitecture(f);
+            Architecture::Register(arch);
+        }
+
+        return true;
     }
 }
