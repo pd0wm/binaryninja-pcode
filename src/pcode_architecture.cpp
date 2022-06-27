@@ -238,6 +238,19 @@ public:
         return "$U" + ss.str();
     }
 
+    uint32_t find_register_by_name(std::string register_name) {
+        for (auto const& [num, name] : m_register_names) {
+            if (name == register_name) {
+                return num;
+            }
+        }
+        LogError("Register %s not found", register_name.c_str());
+        return 0;
+     }
+
+ 	virtual uint32_t GetStackPointerRegister() override {
+ 		return find_register_by_name("sp");
+ 	}
 
     bool GetInstructionInfo(const uint8_t* data, uint64_t addr, size_t maxLen, InstructionInfo& result) override {
         std::lock_guard<std::mutex> guard(m_sleigh_mutex);
